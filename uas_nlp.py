@@ -4,25 +4,38 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from transformers import pipeline
 from collections import Counter
-import os # Untuk memeriksa file lokal
+import os
+
+# --- PENTING: st.set_page_config() HARUS MENJADI PERINTAH STREAMLIT PERTAMA ---
+st.set_page_config(layout="wide", page_title="Insightify AI: Analisis Ulasan")
+
+st.title("👟 Insightify AI: Asisten Analisis Ulasan Produk")
+st.markdown("""
+Aplikasi ini membantu Anda menganalisis sentimen dan mengekstrak kata kunci utama dari ulasan produk.
+Unggah file CSV yang berisi ulasan untuk mendapatkan ringkasan wawasan secara instan!
+""")
 
 # --- Inisialisasi Model NLP ---
-# Menggunakan model sentimen pre-trained untuk Bahasa Indonesia
 @st.cache_resource # Streamlit cache resource untuk memuat model hanya sekali
 def load_sentiment_model():
     """Memuat model analisis sentimen dari Hugging Face."""
     try:
         model_name = "w11wo/indonesian-roberta-base-sentiment-classifier"
-        # Menambahkan trust_remote_code=True jika diperlukan oleh model tertentu,
-        # tapi untuk w11wo tidak selalu wajib. Lebih aman tanpa jika tidak perlu.
         classifier = pipeline("sentiment-analysis", model=model_name)
+        # st.success() di sini sekarang akan baik-baik saja karena set_page_config sudah dipanggil
         st.success(f"Model NLP '{model_name}' berhasil dimuat!")
         return classifier
     except Exception as e:
         st.error(f"Gagal memuat model NLP: {e}. Pastikan Anda memiliki koneksi internet dan pustaka yang terinstal (transformers, torch).")
         return None
 
+# Panggil fungsi load_sentiment_model() setelah set_page_config()
 sentiment_classifier = load_sentiment_model()
+
+# Cek apakah model berhasil dimuat sebelum melanjutkan
+if sentiment_classifier is None:
+    st.warning("Aplikasi tidak dapat berjalan karena model NLP gagal dimuat. Harap periksa koneksi internet Anda atau instalasi pustaka.")
+    st.stop() # Hentikan eksekusi jika model gagal dimuat
 
 # --- Fungsi untuk Analisis Sentimen ---
 def analyze_sentiment(text):
@@ -64,40 +77,13 @@ def extract_keywords_simple(text):
     filtered_words = [word for word in words if len(word) > 2 and word not in stop_words_id]
     return filtered_words
 
-# --- Konfigurasi Halaman Streamlit ---
-st.set_page_config(layout="wide", page_title="Insightify AI: Analisis Ulasan")
-
-st.title("👟 Insightify AI: Asisten Analisis Ulasan Produk")
-st.markdown("""
-Aplikasi ini membantu Anda menganalisis sentimen dan mengekstrak kata kunci utama dari ulasan produk.
-Unggah file CSV yang berisi ulasan untuk mendapatkan ringkasan wawasan secara instan!
-""")
-
-# Cek apakah model berhasil dimuat sebelum melanjutkan
-if sentiment_classifier is None:
-    st.warning("Aplikasi tidak dapat berjalan karena model NLP gagal dimuat. Harap periksa koneksi internet Anda atau instalasi pustaka.")
-    st.stop() # Hentikan eksekusi jika model gagal dimuat
-
 st.header("Unggah Ulasan Anda")
 uploaded_file = st.file_uploader("Pilih file CSV ulasan Anda", type=["csv"])
 
-# --- Alternatif: Jika tidak ada upload, bisa baca dari file lokal ---
-# file_name_local = 'Review Crocs Fiktif.csv'
-# if uploaded_file is None and os.path.exists(file_name_local):
-#     # Jika file tidak diunggah, tapi ada file lokal, gunakan itu.
-#     # Ini bisa berguna untuk development atau demo cepat tanpa harus upload.
-#     # Hati-hati: ini akan memproses file lokal setiap kali app di-refresh.
-#     uploaded_file = file_name_local # Mengganti objek uploaded_file dengan nama file lokal
-#     st.info(f"Menggunakan file lokal: {file_name_local}")
-
 if uploaded_file is not None:
-    # Membaca file CSV
-    # Jika uploaded_file adalah string (dari alternatif file_name_local), pd.read_csv bisa membacanya
-    # Jika uploaded_file adalah objek dari st.file_uploader, pd.read_csv juga bisa membacanya
     df_reviews = pd.read_csv(uploaded_file)
 
-    # Memastikan file memiliki kolom ulasan yang benar
-    review_column_name = 'Ulasan' # Sudah disesuaikan berdasarkan feedback Anda
+    review_column_name = 'Ulasan'
 
     if review_column_name not in df_reviews.columns:
         st.error(f"File CSV harus memiliki kolom bernama '{review_column_name}' yang berisi teks ulasan.")
@@ -106,7 +92,6 @@ if uploaded_file is not None:
 
     st.success("File berhasil diunggah! Memulai analisis...")
 
-    # --- Lakukan Analisis NLP ---
     with st.spinner("Menganalisis sentimen ulasan... Ini mungkin butuh waktu beberapa detik."):
         df_reviews = df_reviews.dropna(subset=[review_column_name])
         df_reviews[review_column_name] = df_reviews[review_column_name].astype(str)
@@ -119,14 +104,6 @@ if uploaded_file is not None:
 
     st.info(f"Ditemukan {len(df_reviews_cleaned)} ulasan yang berhasil dianalisis.")
 
-    # --- Ekstraksi & Penghitungan Kata Kunci ---
-    all_keywords = []
-    for review_text in df_reviews_cleaned[review_column_name]:
-        all_keywords.extend(extract_keywords_simple(review_text))
-
-    keyword_counts = Counter(all_keywords)
-    top_keywords_df = pd.DataFrame(keyword_counts.most_common(15), columns=['Kata Kunci', 'Jumlah'])
-
     st.header("Ringkasan Analisis")
 
     col1, col2 = st.columns(2)
@@ -135,7 +112,7 @@ if uploaded_file is not None:
         st.subheader("Distribusi Sentimen Ulasan")
         if not df_reviews_cleaned.empty and 'sentiment' in df_reviews_cleaned.columns:
             sentiment_counts = df_reviews_cleaned['sentiment'].value_counts(normalize=True) * 100
-
+            
             colors = {'positive': '#66bb6a', 'negative': '#ef5350', 'neutral': '#ffee58'}
             ordered_labels = ['positive', 'neutral', 'negative']
             sentiment_labels_present = [label for label in ordered_labels if label in sentiment_counts.index]
